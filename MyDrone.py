@@ -5,10 +5,10 @@ from math import *
 
 # 下次测试：
 # 方形运动的神秘微动
-# 圆形运动的垂直分速度与水平分速度的比
-# smooth move 一点也不 smooth
 # 图形运动的速度被调高了
-
+# arc_move2
+# nav_data
+#  e.g. drone.navdata.demo.vx
 
 class MyDrone(ARDrone):
     """
@@ -79,7 +79,6 @@ class MyDrone(ARDrone):
         """The base moving method of my drone"""
         self.moving = True
         super().move(forward=vy, right=vx, up=vz, cw=w)
-
         ms_period -= 10
         if ms_period >= 0 and not self.halt:
             self.root.after(10, lambda: self.free_move(vx, vy, vz, w, ms_period))
@@ -130,14 +129,12 @@ class MyDrone(ARDrone):
 
     def arc_move(self, v, deg, ms_period, first_in=True):
         """
-        This function let UAV move in a route of circle
+        This function let UAV move in a route of circle counterclockwise
         Radius r = v * ms_period / (deg/180*pi)
         It directly call the super method because we need to change v for every AT command
         :param v:speed percentage
-        :param deg: The center angle to cover
+        :param deg: The center angle
         :param ms_period: Total time to cover
-        :param first_in:
-        :return:
         """
         if first_in:
             print("Circle starts")
@@ -151,11 +148,20 @@ class MyDrone(ARDrone):
 
         ms_period -= 10
         if ms_period >= 0 and not self.halt:
-            self.root.after(10, lambda: self.arc_move(v, ms_period, False))
+            self.root.after(10, lambda: self.arc_move(v, deg, ms_period, False))
         else:
             self.moving = False
             print("Done")
             time.sleep(1.5)  # This is to make the UAV stable
+
+    def arc_move2(self, v, deg, r):
+        """
+        A more user-friendly arc_move
+        :param v:speed percentage
+        :param deg: The center angle
+        """
+        ms_period = r * (deg/180*pi) / (v * self.max_v)
+        self.arc_move(v, deg, ms_period)
 
     def turn_by_degree(self, deg, w=None, ms_period=None):
         """
@@ -276,7 +282,7 @@ class MyDrone(ARDrone):
 
     def circle(self, v=0.2, ms_period=10000):
         """
-        Draw a circle clockwise.
+        Draw a circle counterclockwise.
         :param v: Speed percentage
         :param ms_period: Total time
         """
@@ -285,7 +291,7 @@ class MyDrone(ARDrone):
 
     def number_eight(self):
         """
-        Draw a number '8',
+        Draw a number '8' clockwise,
         in which the curve upward and downward is a 2/3 circle,
         which implies the sloping angle of the middle 'X' is 60 degree
         """
@@ -301,6 +307,36 @@ class MyDrone(ARDrone):
         moving_list.append(lambda: self.arc_move(v, 2*a, t))
         moving_list.append(lambda: self.move_by_distance(2*r*tan(b), (-v*cos(b), -v*sin(b), 0)))
         moving_list.append(lambda: self.arc_move(v, -a, t))
+
+    def to_center_circle(self, v, deg, ms_period, first_in=True):
+        """
+        Remain to be tested
+        """
+        if first_in:
+            print("To-point Circle starts")
+            self.memo = {"total_moving_period": ms_period}
+
+        self.moving = True
+        w = 2 * pi / (self.max_w * self.memo["total_moving_period"])
+        if w > 1:
+            print("w is too high!")
+            w = 1
+
+        super().move(right=v, ccw=w)
+
+        ms_period -= 10
+        if ms_period >= 0 and not self.halt:
+            self.root.after(10, lambda: self.to_center_circle(v, deg, ms_period, False))
+        else:
+            self.moving = False
+            print("Done")
+            time.sleep(1.5)  # This is to make the UAV stable
+
+    def spiral_up(self, v, max_r, first_in=True):
+        """
+        Remain to be tested
+        """
+        pass
 
     #
     # def show_navdata(self):
@@ -320,5 +356,4 @@ if __name__ == '__main__':
     d.add_btn("下降", lambda: d.climb(-0.1))
     d.add_btn("顺时针旋转", lambda: d.turn(0.1))
     d.add_btn("逆时针旋转", lambda: d.turn(-0.1))
-
     d.run()
