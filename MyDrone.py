@@ -1,5 +1,5 @@
 import tkinter as tk
-from pyardrone import ARDrone, at
+from pyardrone import ARDrone
 import time
 from math import *
 
@@ -20,6 +20,7 @@ from math import *
 # move_by_vector
 
 # curve_move
+
 
 class MyDrone(ARDrone):
     """
@@ -92,7 +93,7 @@ class MyDrone(ARDrone):
         super().move(forward=vy, right=vx, up=vz, cw=w)
         ms_period -= 10
         if ms_period >= 0 and not self.halt:
-            self.root.after(10, lambda: self.free_move(vx, vy, vz, w, ms_period, pause_at_end))
+            self.root.after(10, lambda: self.free_move(vx, vy, vz, w, ms_period))
         else:
             self.moving = False
             print("Done")
