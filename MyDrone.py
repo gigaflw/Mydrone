@@ -5,10 +5,21 @@ from math import *
 
 # 下次测试：
 # 方形运动的神秘微动
+
 # 图形运动的速度被调高了
+
 # arc_move2
+
+# to_center_circle
+
 # nav_data
 #  e.g. drone.navdata.demo.vx
+
+# 键盘控制
+
+# move_by_vector
+
+# curve_move
 
 class MyDrone(ARDrone):
     """
@@ -21,7 +32,7 @@ class MyDrone(ARDrone):
     """
     def __init__(self):
         super().__init__()
-        self.navdata_ready.wait()
+        # self.navdata_ready.wait()
 
         self.root = tk.Tk()
         self.root.minsize(300, 300)
@@ -44,10 +55,10 @@ class MyDrone(ARDrone):
 
     # UI-related functions
 # ------------------------------------------------------
-    def add_btn(self, text, func):
+    def add_btn(self, text: str, func):
         tk.Button(self.root, text=text, command=func).pack(padx=10, pady=5)
 
-    def add_ent(self, description, var):
+    def add_ent(self, description: str, var):
         tk.Label(self.root, text=description).pack()
         tk.Entry(self.root, textvariable=var).pack(padx=10, pady=5)
 
@@ -81,11 +92,11 @@ class MyDrone(ARDrone):
         super().move(forward=vy, right=vx, up=vz, cw=w)
         ms_period -= 10
         if ms_period >= 0 and not self.halt:
-            self.root.after(10, lambda: self.free_move(vx, vy, vz, w, ms_period))
+            self.root.after(10, lambda: self.free_move(vx, vy, vz, w, ms_period, pause_at_end))
         else:
             self.moving = False
             print("Done")
-            time.sleep(1.5)  # This is to make the UAV stable
+            # time.sleep(1.5)  # This is to make the UAV stable
 
     def turn(self, w, ms_period=1000):
         """
@@ -109,7 +120,7 @@ class MyDrone(ARDrone):
         assert(-1 <= v <= 1)
         self.free_move(0, 0, v, 0, ms_period)
 
-    def move_seq(self, seq, interval=500, index=0):
+    def move_seq(self, seq: list, interval=500, index=0):
         """
         Handle a sequence of move command
         Every 'interval' milliseconds,this function will be called and check self.moving to see if UAV is moving,
@@ -122,12 +133,13 @@ class MyDrone(ARDrone):
         if self.moving:
             self.root.after(interval, lambda: self.move_seq(seq, interval, index))
         else:
+            time.sleep(1.5) # this is a pause make the UAV stable before next move
             self.root.after(200, seq[index])
             index += 1
             if index < len(seq):
                 self.root.after(interval, lambda: self.move_seq(seq, interval, index))
 
-    def arc_move(self, v, deg, ms_period, first_in=True):
+    def arc_move(self, v, deg: int, ms_period: int, first_in=True):
         """
         This function let UAV move in a route of circle counterclockwise
         Radius r = v * ms_period / (deg/180*pi)
@@ -236,7 +248,7 @@ class MyDrone(ARDrone):
 
             return max_v * sin(pi/t*tr)
 
-        self.move(forward=smooth_map(vy, ms_period))
+        self.move(forward=smooth_map3(vy, ms_period))
         ms_period -= 10
         if ms_period >= 0 and not self.halt:
             self.root.after(10, lambda: self.smooth_move(vy, ms_period, False))
@@ -280,6 +292,7 @@ class MyDrone(ARDrone):
         moving_list.append(lambda: self.free_move(-v, 0, 0, 0, t))
         self.move_seq(moving_list)
 
+    # to be tested
     def circle(self, v=0.2, ms_period=10000):
         """
         Draw a circle counterclockwise.
@@ -338,7 +351,37 @@ class MyDrone(ARDrone):
         """
         pass
 
-    #
+    def move_by_vector(self, desti, ms_period):
+        """
+        desti is a 3d vector pointing to the destination
+        """
+        assert(len(desti) == 3)
+
+        length = sqrt(sum(map(lambda x: x**2, desti)))  # length = sqrt(x^2+y^2+z^2)
+        # ms_period = length / (self.max_v*v)
+        v = length / ms_period / self.max_v
+        assert(-1 <= v <= 1)
+        vx = v/length * desti[0]
+        vy = v/length * desti[1]
+        vz = v/length * desti[2]
+
+        print("destination:", desti, "\tv:(%.2f,%.2f,%.2f)m/s,period:%.2fms" % (vx, vy, vz, ms_period))
+        self.free_move(vx, vy, vz, 0, ms_period)
+
+    def curve_move(self, x, y, z, ms_period):
+        """
+        x,y,z are three parameter functions of time
+        so that at time t,UAV will be at the coordinate (x,y,z)
+        """
+        steps = 1000
+        dt = ms_period / steps
+        for t in range(0, ms_period, steps):
+            dx = x(t+dt) - x(t)
+            dy = y(t+dt) - y(t)
+            dz = z(t+dt) - z(t)
+            desti = (dx, dy, dz)
+            self.move_by_vector(desti, dt)
+
     # def show_navdata(self):
     #     self.send(at.CONFIG('general:navdata_demo', True))
     #     print(self.state)
@@ -346,6 +389,16 @@ class MyDrone(ARDrone):
 
 if __name__ == '__main__':
     d = MyDrone()
+
+    d.root.bind_all('<Up>', lambda e: d.move(forward=0.1))
+    d.root.bind_all('<Down>', lambda e: d.move(backward=0.1))
+    d.root.bind_all('<Left>', lambda e: d.move(left=0.1))
+    d.root.bind_all('<Right>', lambda e: d.move(right=0.1))
+    d.root.bind_all('<z>', lambda e: d.move(up=0.1))
+    d.root.bind_all('<x>', lambda e: d.move(down=0.1))
+    d.root.bind_all('<a>', lambda e: d.move(ccw=0.1))
+    d.root.bind_all('<s>', lambda e: d.move(cw=0.1))
+
     d.add_btn("起飞", d.takeoff)
     d.add_btn("降落", d.land)
     d.add_btn("前进(默认1s,下同）", lambda: d.forward(0.1))
@@ -356,4 +409,46 @@ if __name__ == '__main__':
     d.add_btn("下降", lambda: d.climb(-0.1))
     d.add_btn("顺时针旋转", lambda: d.turn(0.1))
     d.add_btn("逆时针旋转", lambda: d.turn(-0.1))
+
+    # 方形运动的神秘微动
+    d.add_btn("Square", lambda: d.square())
+    # 图形运动的速度被调高了
+    d.add_btn("Triangle", lambda: d.triangle())
+    d.add_btn("Circle", lambda: d.circle())
+    d.add_btn("8", lambda: d.number_eight())
+
+    # arc_move2
+    deg = tk.IntVar()
+    r = tk.IntVar()
+    d.add_ent("角度", deg)
+    d.add_ent("半径", r)
+    d.add_btn("8", lambda: d.arc_move2(0.2, deg.get(), r.get()))
+
+    # to_center_circle
+    d.add_btn("对心圆周", d.to_center_circle(0.1, 180, 2000))
+
+    # move by vector
+    d.add_btn("向量移动(1,1,1)", d.move_by_vector((1, 1, 1), 1000))
+    d.add_btn("向量移动(2,2,0)", d.move_by_vector((2, 2, 0), 2000))
+    d.add_btn("向量移动(-1,1,0)", d.move_by_vector((-1, 1, 1), 1000))
+
+    # curve move
+    x = lambda t: t/1000
+    y = lambda t: 2*t/1000
+    z = lambda t: 0
+    d.add_btn("曲线移动(右前方)", d.curve_move(x, y, z, 2000))
+
+    x = lambda t: 0
+    y = lambda t: 0
+    z = lambda t: t/1000
+    d.add_btn("曲线移动（直线上升2m)", d.curve_move(x, y, z, 2000))
+
+    x = lambda t: cos(t/2000 * 2 * pi)
+    y = lambda t: sin(t/2000 * 2 * pi)
+    z = lambda t: 0
+    d.add_btn("曲线移动(圆周)", d.curve_move(x, y, z, 2000))
+
+    # nav_data
+    #  e.g. drone.navdata.demo.vx
+
     d.run()
