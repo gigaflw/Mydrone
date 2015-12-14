@@ -3,7 +3,8 @@ from pyardrone import ARDrone, at
 import time
 from math import *
 
-from PDIController import PDIController
+from PIDController import PIDController
+
 
 class MyDrone(ARDrone):
     """
@@ -29,8 +30,12 @@ class MyDrone(ARDrone):
         self.max_v = 0.01  # m/ms
         self.max_w = 0.12  # deg/ms
 
-        self.vx_ctrl = PDIController()
-        self.vy_ctrl = PDIController()
+        # PID controller,
+        # be cleared in _arc_move and move_seq,
+        # be used in _arc_move and free_move
+        self.vx_ctrl = PIDController()
+        self.vy_ctrl = PIDController()
+
         # enable navdata
         self.send(at.CONFIG('general:navdata_demo', True))
 
@@ -78,6 +83,15 @@ class MyDrone(ARDrone):
     def free_move(self, vx, vy, vz, w, ms_period):
         """The base moving method of my drone"""
         self.moving = True
+
+        real_vx = self.navdata.demo.vx / 1000 / 1000
+        real_vy = self.navdata.demo.vx / 1000 / 1000  # convert from mm/s to m/ms
+
+        # vx = self.vx_ctrl.correct(real_vx-vx, vx)
+        # vy = self.vx_ctrl.correct(real_vy-vx, vy)
+        print("delta:%.5f,vx:%.4f" % (self.vx_ctrl.delta(real_vx-vx), vx))
+        print("delta:%.5f,vy:%.4f" % (self.vy_ctrl.delta(real_vy-vy), vy))
+
         super().move(forward=vy, right=vx, up=vz, cw=w)
         ms_period -= 10
         if ms_period >= 0 and not self.halt:
@@ -122,6 +136,8 @@ class MyDrone(ARDrone):
         if self.moving:
             self.root.after(interval, lambda: self.move_seq(seq, interval, index))
         else:
+            self.vx_ctrl.clear()
+            self.vy_ctrl.clear()
             time.sleep(2)  # this is a pause make the UAV stable before next move
             self.root.after(200, seq[index])
             index += 1
@@ -141,6 +157,8 @@ class MyDrone(ARDrone):
         But this function is NOT user-friendly,you had better use arc_move below
         """
         if first_in:
+            self.vx_ctrl.clear()
+            self.vy_ctrl.clear()
             print("Circle starts")
             self.memo = {"total_moving_period": ms_period}
 

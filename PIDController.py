@@ -1,4 +1,4 @@
-class PDIController:
+class PIDController:
     def __init__(self):
         self.error_sum = 0
         self.last_error = 0
@@ -14,3 +14,7 @@ class PDIController:
         self.error_sum += error
         self.last_error = error
         return p + i + d
+
+    def clear(self):
+        self.error_sum = 0
+        self.last_error = 0
