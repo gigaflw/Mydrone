@@ -3,24 +3,6 @@ from pyardrone import ARDrone
 import time
 from math import *
 
-# 下次测试：
-# 方形运动的神秘微动
-
-# 图形运动的速度被调高了
-
-# arc_move2
-
-# to_center_circle
-
-# nav_data
-#  e.g. drone.navdata.demo.vx
-
-# 键盘控制
-
-# move_by_vector
-
-# curve_move
-
 
 class MyDrone(ARDrone):
     """
@@ -33,8 +15,8 @@ class MyDrone(ARDrone):
     """
     def __init__(self):
         super().__init__()
-        # self.navdata_ready.wait()
-
+        self.navdata_ready.wait()
+        print("Navdata prepared.")
         self.root = tk.Tk()
         self.root.minsize(300, 300)
 
@@ -134,132 +116,169 @@ class MyDrone(ARDrone):
         if self.moving:
             self.root.after(interval, lambda: self.move_seq(seq, interval, index))
         else:
-            time.sleep(1.5) # this is a pause make the UAV stable before next move
+            time.sleep(2)  # this is a pause make the UAV stable before next move
             self.root.after(200, seq[index])
             index += 1
             if index < len(seq):
                 self.root.after(interval, lambda: self.move_seq(seq, interval, index))
 
-    def arc_move(self, v, deg: int, ms_period: int, first_in=True):
+    def _arc_move(self, v, deg: float, ms_period: int, start_angle=0.0, first_in=True):
         """
-        This function let UAV move in a route of circle counterclockwise
-        Radius r = v * ms_period / (deg/180*pi)
+        A internal function serves to let UAV move in a route of a circle.
+        deg and start_angle are in radians
+
+        Radius r = (self.max_v*v) * ms_period / deg
+
         It directly call the super method because we need to change v for every AT command
-        :param v:speed percentage
-        :param deg: The center angle
-        :param ms_period: Total time to cover
+        0 degree points to the South,and counterclockwise is positive
+
+        But this function is NOT user-friendly,you had better use arc_move below
         """
         if first_in:
             print("Circle starts")
             self.memo = {"total_moving_period": ms_period}
 
         self.moving = True
-        a = 2 * pi * deg/360 * (1 - ms_period / self.memo["total_moving_period"])
-        vx = v * cos(a)
-        vy = v * sin(a)
+
+        cur_ang = deg * (1 - ms_period / self.memo["total_moving_period"])
+        cur_ang += start_angle
+
+        ccw_flag = -1 if deg < 0 else 1
+        vx = v * cos(cur_ang) * ccw_flag
+        vy = v * sin(cur_ang) * ccw_flag
+
+        # print("%.2f,%.3f,%.3f" % (cur_ang, vx, vy))
         super().move(right=vx, forward=vy)
 
         ms_period -= 10
         if ms_period >= 0 and not self.halt:
-            self.root.after(10, lambda: self.arc_move(v, deg, ms_period, False))
+            self.root.after(10, lambda: self._arc_move(v, deg, ms_period, start_angle, False))
         else:
             self.moving = False
             print("Done")
-            time.sleep(1.5)  # This is to make the UAV stable
+            time.sleep(1)  # This is to make the UAV stable
 
-    def arc_move2(self, v, deg, r):
+    def arc_move(self, v, r, deg, start_angle=0):
         """
-        A more user-friendly arc_move
-        :param v:speed percentage
-        :param deg: The center angle
+        A much more user-friendly arc_move
+
+        UAV is supposed at the place of 6 o'clock at default
+        i.e.
+        6 o'clock -> 0 degree
+        3 o'clock -> 90 degree or -270
+        9 o'clock -> -90 degree or 270
+        12 o'clock -> 180 degree
+        The sign of deg stands for counterclockwise(+)/clockwise(-) move
+
+        Examples:
+        To move UAV from 6 o'clock to 3 o'clock counterclockwise with 10% speed,1m radius
+        drone.arc_move(0.1, 1, 90, 0)
+
+        To move UAV from 6 o'clock to 9 o'clock clockwise with 10% speed,1m radius
+        drone.arc_move(0.1, 1, -90, 0)
+
+        To move UAV from 6 o'clock to 9 o'clock counterclockwise with 10% speed,1m radius
+        drone.arc_move(0.1, 1, 270, 0)
+
+        To move UAV from 9 o'clock to 6 o'clock counterclockwise with 10% speed,1m radius
+        drone.arc_move(0.1, 1, 90, -90)
+
+        To move UAV from 8 o'clock to 5 o'clock counterclockwise with 10% speed,1m radius
+        drone.arc_move(0.1, 1, 90, -60)
+
+        To move 2 rounds
+        drone.arc_move(0.1, 1, 720, 0)
         """
-        ms_period = r * (deg/180*pi) / (v * self.max_v)
-        self.arc_move(v, deg, ms_period)
+        deg = pi * deg/180
+        start_angle = pi * start_angle/180
+        ms_period = abs(r * deg / (v * self.max_v))
+        self._arc_move(v, deg, ms_period, start_angle)
 
-    def turn_by_degree(self, deg, w=None, ms_period=None):
-        """
-        You should control either by speed or by period
-        This function is NOT STABLE,UAV will mysteriously drift around after the move
-
-        :param deg: The degree you want to turn,negative value means counterclockwise
-        :param w: Angle speed percentage
-        :param ms_period: The time you'd like to use to complete the move,only works when 'w' is not given
-        """
-        if w:
-            ms_period = deg/(self.max_w * w)
-        elif ms_period:
-            w = deg / ms_period / self.max_w
-        else:
-            w = 0.1
-            ms_period = deg/(self.max_w * w)
-
-        self.turn(w, ms_period)
-
-    def move_by_distance(self, distance, v, ms_period=None):
-        """Speed must be given,if period is given,recalculate speed without change its direction"""
-        # You had better test the range of period first
-        assert(len(v) == 3)
-        vx, vy, vz = v
-        if ms_period:
-            v_magnitude = distance / ms_period / self.max_v
-            vx /= v_magnitude
-            vy /= v_magnitude
-            vz /= v_magnitude
-        else:
-            v_magnitude = sqrt(vx**2 + vy**2 + vz**2)
-            ms_period = distance / (self.max_v * v_magnitude)
-
-        print("distance:%dm,v:(%.2f,%.2f,%.2f)m/s,period:%.2fs" % (distance, vx, vy, vz, ms_period))
-        self.free_move(vx, vy, vz, 0, ms_period)
-
-    def smooth_move(self, vy, ms_period, first_in=True):
-        """
-        Moving smoothly,which means slow->fast>slow
-        Only forward or backward available yet
-
-        Difference between normal and 'smooth' move is not obvious
-        And when speed comes down,UAV will tilt to slow down automatically,which make it not smooth at all
-        So it is not recommended before improved
-        """
-        if first_in:
-            print("Move start!")
-            self.memo = {"total_moving_period": ms_period}
-
-        def smooth_map(max_v, time_remain):
-            """
-            It returns the speed UAV should use according to the ratio of time_remain
-            a map like '/\
-            '"""
-            # add 0.01 to prevent zero speed
-            t = self.memo["total_moving_period"]
-            k = 2*max_v/t
-            return max_v-abs(k*(time_remain-t/2))+0.01
-
-        def smooth_map2(max_v, time_remain):
-            """a map like '⋂'"""
-            tr = time_remain
-            t = self.memo["total_moving_period"]
-            a = -4*max_v/t**2
-            return a*tr*(tr-t)+0.01
-
-        def smooth_map3(max_v, time_remain):
-            """a map using sin"""
-            tr = time_remain
-            t = self.memo["total_moving_period"]
-
-            return max_v * sin(pi/t*tr)
-
-        self.move(forward=smooth_map3(vy, ms_period))
-        ms_period -= 10
-        if ms_period >= 0 and not self.halt:
-            self.root.after(10, lambda: self.smooth_move(vy, ms_period, False))
-        else:
-            self.memo = {}
-            print("Moving ends.")
+    # NOT stable functions
+    # def turn_by_degree(self, deg, w=None, ms_period=None):
+    #     """
+    #     You should control either by speed or by period
+    #     This function is NOT STABLE,UAV will mysteriously drift around after the move
+    #
+    #     :param deg: The degree you want to turn,negative value means counterclockwise
+    #     :param w: Angle speed percentage
+    #     :param ms_period: The time you'd like to use to complete the move,only works when 'w' is not given
+    #     """
+    #     if w:
+    #         ms_period = deg/(self.max_w * w)
+    #     elif ms_period:
+    #         w = deg / ms_period / self.max_w
+    #     else:
+    #         w = 0.1
+    #         ms_period = deg/(self.max_w * w)
+    #
+    #     self.turn(w, ms_period)
+    #
+    # def move_by_distance(self, distance, v, ms_period=None):
+    #     """Speed must be given,if period is given,recalculate speed without change its direction"""
+    #     # You had better test the range of period first
+    #     assert(len(v) == 3)
+    #     vx, vy, vz = v
+    #     if ms_period:
+    #         v_magnitude = distance / ms_period / self.max_v
+    #         vx /= v_magnitude
+    #         vy /= v_magnitude
+    #         vz /= v_magnitude
+    #     else:
+    #         v_magnitude = sqrt(vx**2 + vy**2 + vz**2)
+    #         ms_period = distance / (self.max_v * v_magnitude)
+    #
+    #     print("distance:%dm,v:(%.2f,%.2f,%.2f)m/s,period:%.2fs" % (distance, vx, vy, vz, ms_period))
+    #     self.free_move(vx, vy, vz, 0, ms_period)
+    #
+    # def smooth_move(self, vy, ms_period, first_in=True):
+    #     """
+    #     Moving smoothly,which means slow->fast>slow
+    #     Only forward or backward available yet
+    #
+    #     Difference between normal and 'smooth' move is not obvious
+    #     And when speed comes down,UAV will tilt to slow down automatically,which make it not smooth at all
+    #     So it is not recommended before improved
+    #     """
+    #     if first_in:
+    #         print("Move start!")
+    #         self.memo = {"total_moving_period": ms_period}
+    #
+    #     def smooth_map(max_v, time_remain):
+    #         """
+    #         It returns the speed UAV should use according to the ratio of time_remain
+    #         a map like '/\
+    #         '"""
+    #         # add 0.01 to prevent zero speed
+    #         t = self.memo["total_moving_period"]
+    #         k = 2*max_v/t
+    #         return max_v-abs(k*(time_remain-t/2))+0.01
+    #
+    #     def smooth_map2(max_v, time_remain):
+    #         """a map like '⋂'"""
+    #         tr = time_remain
+    #         t = self.memo["total_moving_period"]
+    #         a = -4*max_v/t**2
+    #         return a*tr*(tr-t)+0.01
+    #
+    #     def smooth_map3(max_v, time_remain):
+    #         """a map using sin"""
+    #         tr = time_remain
+    #         t = self.memo["total_moving_period"]
+    #
+    #         return max_v * sin(pi/t*tr)
+    #
+    #     self.move(forward=smooth_map3(vy, ms_period))
+    #     ms_period -= 10
+    #     if ms_period >= 0 and not self.halt:
+    #         self.root.after(10, lambda: self.smooth_move(vy, ms_period, False))
+    #     else:
+    #         self.memo = {}
+    #         print("Moving ends.")
 
     # Shape moving
 # ------------------------------------------------------
-    def square(self, v=0.3, ms_period=500):
+    def square(self, v=0.2, ms_period=400):
         """
         Moving in the route of a square in horizontal plane in the order of forward,right,backward,left
 
@@ -277,7 +296,7 @@ class MyDrone(ARDrone):
         move_list.append(lambda: self.right(-v, t))
         self.move_seq(move_list)
 
-    def triangle(self, v=0.3, ms_period=500):
+    def triangle(self, v=0.2, ms_period=400):
         """
         Moving in the route of a triangle in horizontal plane in the order of forward,backward,left
 
@@ -294,14 +313,20 @@ class MyDrone(ARDrone):
         self.move_seq(moving_list)
 
     # to be tested
-    def circle(self, v=0.2, ms_period=10000):
+    def circle(self, v=0.1, r=1):
         """
         Draw a circle counterclockwise.
         :param v: Speed percentage
-        :param ms_period: Total time
         """
         print("Circle moving start")
-        self.arc_move(v, 360, ms_period)
+        deg = 360
+        # ms_period = r * (deg/180*pi) / (self.max_v * v)
+        m_list = list()
+        m_list.append(lambda: self.arc_move(v, r, 90, 0))
+        m_list.append(lambda: self.arc_move(v, r, 90, 90))
+        m_list.append(lambda: self.arc_move(v, r, 90, 180))
+        m_list.append(lambda: self.arc_move(v, r, 90, 270))
+        self.move_seq(m_list)
 
     def number_eight(self):
         """
@@ -310,17 +335,27 @@ class MyDrone(ARDrone):
         which implies the sloping angle of the middle 'X' is 60 degree
         """
         v = 0.1
-        a = 120  # The angle of curve
-        t = 2000
-        b = 180 - a  # The angle of slope
-        r = v * t / (a/180*pi)  # The radius,see docstring of arc_move
+        a = 180  # The angle of curve
+        # t = 1000
+        b = 60 # The angle of slope
+        a = radians(a)
+        b = radians(b)
+        # r = (self.max_v*v) * t / (a/180*pi)  # The radius,see docstring of arc_move
+        r = 1
+
+        forward_len = 2*r/cos(b)
+        forward_len /= 3  # crazy modify
 
         moving_list = list()
-        moving_list.append(lambda: self.arc_move(v, -a, t))
-        moving_list.append(lambda: self.move_by_distance(2*r*tan(b), (v*cos(b), v*sin(b), 0)))
-        moving_list.append(lambda: self.arc_move(v, 2*a, t))
-        moving_list.append(lambda: self.move_by_distance(2*r*tan(b), (-v*cos(b), -v*sin(b), 0)))
-        moving_list.append(lambda: self.arc_move(v, -a, t))
+        # moving_list.append(lambda: self.move_by_vector((forward_len*cos(b), forward_len*sin(b), 0), 2000))
+        # moving_list.append(lambda: self.move_by_distance(forward_len, (v*cos(b), v*sin(b), 0)))
+        moving_list.append(lambda: self.free_move(v*cos(b), v*sin(b), 0, 0, 2000))
+        moving_list.append(lambda: self.arc_move(v, r, 180, 90))
+        # moving_list.append(lambda: self.move_by_distance(forward_len, (v*cos(b), -v*sin(b), 0)))
+        moving_list.append(lambda: self.free_move(v*cos(b), -v*sin(b), 0, 0, 2000))
+        # moving_list.append(lambda: self.move_by_vector((forward_len*cos(b), -forward_len*sin(b), 0), 2000))
+        moving_list.append(lambda: self.arc_move(v, r, -180, 90))
+        self.move_seq(moving_list)
 
     def to_center_circle(self, v, deg, ms_period, first_in=True):
         """
@@ -336,7 +371,8 @@ class MyDrone(ARDrone):
             print("w is too high!")
             w = 1
 
-        super().move(right=v, ccw=w)
+        # super().move(right=v, ccw=w)
+        super().move(ccw=w)
 
         ms_period -= 10
         if ms_period >= 0 and not self.halt:
@@ -346,42 +382,25 @@ class MyDrone(ARDrone):
             print("Done")
             time.sleep(1.5)  # This is to make the UAV stable
 
-    def spiral_up(self, v, max_r, first_in=True):
-        """
-        Remain to be tested
-        """
-        pass
+    # def spiral_up(self, v, max_r, first_in=True):
+    #     """
+    #     Remain to be tested
+    #     """
+    #     pass
 
-    def move_by_vector(self, desti, ms_period):
-        """
-        desti is a 3d vector pointing to the destination
-        """
-        assert(len(desti) == 3)
-
-        length = sqrt(sum(map(lambda x: x**2, desti)))  # length = sqrt(x^2+y^2+z^2)
-        # ms_period = length / (self.max_v*v)
-        v = length / ms_period / self.max_v
-        assert(-1 <= v <= 1)
-        vx = v/length * desti[0]
-        vy = v/length * desti[1]
-        vz = v/length * desti[2]
-
-        print("destination:", desti, "\tv:(%.2f,%.2f,%.2f)m/s,period:%.2fms" % (vx, vy, vz, ms_period))
-        self.free_move(vx, vy, vz, 0, ms_period)
-
-    def curve_move(self, x, y, z, ms_period):
-        """
-        x,y,z are three parameter functions of time
-        so that at time t,UAV will be at the coordinate (x,y,z)
-        """
-        steps = 1000
-        dt = ms_period / steps
-        for t in range(0, ms_period, steps):
-            dx = x(t+dt) - x(t)
-            dy = y(t+dt) - y(t)
-            dz = z(t+dt) - z(t)
-            desti = (dx, dy, dz)
-            self.move_by_vector(desti, dt)
+    # def curve_move(self, x, y, z, ms_period):
+    #     """
+    #     x,y,z are three parameter functions of time
+    #     so that at time t,UAV will be at the coordinate (x,y,z)
+    #     """
+    #     steps = 1000
+    #     dt = ms_period / steps
+    #     for t in range(0, ms_period, steps):
+    #         dx = x(t+dt) - x(t)
+    #         dy = y(t+dt) - y(t)
+    #         dz = z(t+dt) - z(t)
+    #         desti = (dx, dy, dz)
+    #         self.move_by_vector(desti, dt)
 
     # def show_navdata(self):
     #     self.send(at.CONFIG('general:navdata_demo', True))
@@ -395,59 +414,37 @@ if __name__ == '__main__':
     d.root.bind_all('<Down>', lambda e: d.move(backward=0.1))
     d.root.bind_all('<Left>', lambda e: d.move(left=0.1))
     d.root.bind_all('<Right>', lambda e: d.move(right=0.1))
-    d.root.bind_all('<z>', lambda e: d.move(up=0.1))
-    d.root.bind_all('<x>', lambda e: d.move(down=0.1))
-    d.root.bind_all('<a>', lambda e: d.move(ccw=0.1))
-    d.root.bind_all('<s>', lambda e: d.move(cw=0.1))
+    d.root.bind_all('<Z>', lambda e: d.move(up=0.1))
+    d.root.bind_all('<X>', lambda e: d.move(down=0.1))
+    d.root.bind_all('<A>', lambda e: d.move(ccw=0.1))
+    d.root.bind_all('<S>', lambda e: d.move(cw=0.1))
+    d.root.bind_all('<T>', lambda e: d.takeoff())
+    d.root.bind_all('<L>', lambda e: d.land())
 
     d.add_btn("起飞", d.takeoff)
     d.add_btn("降落", d.land)
-    d.add_btn("前进(默认1s,下同）", lambda: d.forward(0.1))
-    d.add_btn("后退", lambda: d.forward(0.1))
-    d.add_btn("右移", lambda: d.right(0.2))
-    d.add_btn("左移", lambda: d.right(-0.2))
-    d.add_btn("上升", lambda: d.climb(0.1))
-    d.add_btn("下降", lambda: d.climb(-0.1))
-    d.add_btn("顺时针旋转", lambda: d.turn(0.1))
-    d.add_btn("逆时针旋转", lambda: d.turn(-0.1))
+    # d.add_btn("前进(默认1s,下同）", lambda: d.forward(0.1))
+    # d.add_btn("后退", lambda: d.forward(-0.1))
+    # d.add_btn("右移", lambda: d.right(0.1))
+    # d.add_btn("左移", lambda: d.right(-0.1))
+    # d.add_btn("上升", lambda: d.climb(0.1))
+    # d.add_btn("下降", lambda: d.climb(-0.1))
+    # d.add_btn("顺时针旋转", lambda: d.turn(0.1))
+    # d.add_btn("逆时针旋转", lambda: d.turn(-0.1))
 
-    # 方形运动的神秘微动
     d.add_btn("Square", lambda: d.square())
-    # 图形运动的速度被调高了
     d.add_btn("Triangle", lambda: d.triangle())
     d.add_btn("Circle", lambda: d.circle())
     d.add_btn("8", lambda: d.number_eight())
 
-    # arc_move2
+    # arc_move
     deg = tk.IntVar()
+    d0 = tk.IntVar()
     r = tk.IntVar()
     d.add_ent("角度", deg)
+    d.add_ent("初始角度", d0)
     d.add_ent("半径", r)
-    d.add_btn("8", lambda: d.arc_move2(0.2, deg.get(), r.get()))
-
-    # to_center_circle
-    d.add_btn("对心圆周", d.to_center_circle(0.1, 180, 2000))
-
-    # move by vector
-    d.add_btn("向量移动(1,1,1)", d.move_by_vector((1, 1, 1), 1000))
-    d.add_btn("向量移动(2,2,0)", d.move_by_vector((2, 2, 0), 2000))
-    d.add_btn("向量移动(-1,1,0)", d.move_by_vector((-1, 1, 1), 1000))
-
-    # curve move
-    x = lambda t: t/1000
-    y = lambda t: 2*t/1000
-    z = lambda t: 0
-    d.add_btn("曲线移动(右前方)", d.curve_move(x, y, z, 2000))
-
-    x = lambda t: 0
-    y = lambda t: 0
-    z = lambda t: t/1000
-    d.add_btn("曲线移动（直线上升2m)", d.curve_move(x, y, z, 2000))
-
-    x = lambda t: cos(t/2000 * 2 * pi)
-    y = lambda t: sin(t/2000 * 2 * pi)
-    z = lambda t: 0
-    d.add_btn("曲线移动(圆周)", d.curve_move(x, y, z, 2000))
+    d.add_btn("arc_move", lambda: d.arc_move(0.1, r.get(), deg.get(), d0.get()))
 
     # nav_data
     #  e.g. drone.navdata.demo.vx
