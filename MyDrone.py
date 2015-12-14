@@ -1,8 +1,9 @@
 import tkinter as tk
-from pyardrone import ARDrone
+from pyardrone import ARDrone, at
 import time
 from math import *
 
+from PDIController import PDIController
 
 class MyDrone(ARDrone):
     """
@@ -27,6 +28,11 @@ class MyDrone(ARDrone):
         # I can't find a record from the doc of ARDrone,these data are estimated
         self.max_v = 0.01  # m/ms
         self.max_w = 0.12  # deg/ms
+
+        self.vx_ctrl = PDIController()
+        self.vy_ctrl = PDIController()
+        # enable navdata
+        self.send(at.CONFIG('general:navdata_demo', True))
 
     def run(self):
         """Make everything begin"""
@@ -146,6 +152,15 @@ class MyDrone(ARDrone):
         ccw_flag = -1 if deg < 0 else 1
         vx = v * cos(cur_ang) * ccw_flag
         vy = v * sin(cur_ang) * ccw_flag
+
+        # get real data
+        real_vx = self.navdata.demo.vx / 1000 / 1000
+        real_vy = self.navdata.demo.vx / 1000 / 1000  # convert from mm/s to m/ms
+
+        # vx = self.vx_ctrl.correct(real_vx-vx, vx)
+        # vy = self.vx_ctrl.correct(real_vy-vx, vy)
+        print("delta:%.5f,vx:%.4f" % (self.vx_ctrl.delta(real_vx-vx), vx))
+        print("delta:%.5f,vy:%.4f" % (self.vy_ctrl.delta(real_vy-vy), vy))
 
         # print("%.2f,%.3f,%.3f" % (cur_ang, vx, vy))
         super().move(right=vx, forward=vy)
@@ -312,7 +327,6 @@ class MyDrone(ARDrone):
         moving_list.append(lambda: self.free_move(-v, 0, 0, 0, t))
         self.move_seq(moving_list)
 
-    # to be tested
     def circle(self, v=0.1, r=1):
         """
         Draw a circle counterclockwise.
@@ -347,13 +361,9 @@ class MyDrone(ARDrone):
         forward_len /= 3  # crazy modify
 
         moving_list = list()
-        # moving_list.append(lambda: self.move_by_vector((forward_len*cos(b), forward_len*sin(b), 0), 2000))
-        # moving_list.append(lambda: self.move_by_distance(forward_len, (v*cos(b), v*sin(b), 0)))
         moving_list.append(lambda: self.free_move(v*cos(b), v*sin(b), 0, 0, 2000))
         moving_list.append(lambda: self.arc_move(v, r, 180, 90))
-        # moving_list.append(lambda: self.move_by_distance(forward_len, (v*cos(b), -v*sin(b), 0)))
         moving_list.append(lambda: self.free_move(v*cos(b), -v*sin(b), 0, 0, 2000))
-        # moving_list.append(lambda: self.move_by_vector((forward_len*cos(b), -forward_len*sin(b), 0), 2000))
         moving_list.append(lambda: self.arc_move(v, r, -180, 90))
         self.move_seq(moving_list)
 
