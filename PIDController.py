@@ -3,8 +3,8 @@ class PIDController:
         self.error_sum = 0
         self.last_error = 0
         self.p_const = - 0.2
-        self.i_const = - 0.1
-        self.d_const = - 0.1
+        self.i_const = - 0.0
+        self.d_const = - 0.0
 
     def delta(self, error):
         p = error * self.p_const

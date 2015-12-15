@@ -35,6 +35,7 @@ class MyDrone(ARDrone):
         # be used in _arc_move and free_move
         self.vx_ctrl = PIDController()
         self.vy_ctrl = PIDController()
+        self.vz_ctrl = PIDController()
 
         # enable navdata
         self.send(at.CONFIG('general:navdata_demo', True))
@@ -80,24 +81,24 @@ class MyDrone(ARDrone):
 
     # Basic moving
 # ------------------------------------------------------
-    def free_move(self, vx, vy, vz, w, ms_period):
+    def free_move(self, vx, vy, vz, w, ms_period, first_in=True):
         """The base moving method of my drone"""
-        self.moving = True
+        if first_in:
+            self.moving = True
+            self.clear_controller()
+            self.memo = {"total_period": ms_period}
 
-        real_vx = self.navdata.demo.vx / 1000 / 1000
-        real_vy = self.navdata.demo.vx / 1000 / 1000  # convert from mm/s to m/ms
+        # Calculate offset using PDI controller
+        dx, dy, dz = self.speed_offset(vx, vy, vz)
 
-        # vx = self.vx_ctrl.correct(real_vx-vx, vx)
-        # vy = self.vx_ctrl.correct(real_vy-vx, vy)
-        print("delta:%.5f,vx:%.4f" % (self.vx_ctrl.delta(real_vx-vx), vx))
-        print("delta:%.5f,vy:%.4f" % (self.vy_ctrl.delta(real_vy-vy), vy))
+        super().move(forward=vy+dy, right=vx+dx, up=vz+dz, cw=w)
 
-        super().move(forward=vy, right=vx, up=vz, cw=w)
         ms_period -= 10
         if ms_period >= 0 and not self.halt:
-            self.root.after(10, lambda: self.free_move(vx, vy, vz, w, ms_period))
+            self.root.after(10, lambda: self.free_move(vx, vy, vz, w, ms_period, False))
         else:
             self.moving = False
+            self.memo = {}
             print("Done")
             # time.sleep(1.5)  # This is to make the UAV stable
 
@@ -157,39 +158,64 @@ class MyDrone(ARDrone):
         But this function is NOT user-friendly,you had better use arc_move below
         """
         if first_in:
-            self.vx_ctrl.clear()
-            self.vy_ctrl.clear()
+            self.clear_controller()
             print("Circle starts")
-            self.memo = {"total_moving_period": ms_period}
+            self.memo = {"total_period": ms_period}
 
         self.moving = True
 
-        cur_ang = deg * (1 - ms_period / self.memo["total_moving_period"])
+        cur_ang = deg * (1 - ms_period / self.memo["total_period"])
         cur_ang += start_angle
 
         ccw_flag = -1 if deg < 0 else 1
         vx = v * cos(cur_ang) * ccw_flag
         vy = v * sin(cur_ang) * ccw_flag
 
-        # get real data
-        real_vx = self.navdata.demo.vx / 1000 / 1000
-        real_vy = self.navdata.demo.vx / 1000 / 1000  # convert from mm/s to m/ms
-
-        # vx = self.vx_ctrl.correct(real_vx-vx, vx)
-        # vy = self.vx_ctrl.correct(real_vy-vx, vy)
-        print("delta:%.5f,vx:%.4f" % (self.vx_ctrl.delta(real_vx-vx), vx))
-        print("delta:%.5f,vy:%.4f" % (self.vy_ctrl.delta(real_vy-vy), vy))
+        # Calculate offset using PDI controller
+        dx, dy, _ = self.speed_offset(vx, vy, 0)
 
         # print("%.2f,%.3f,%.3f" % (cur_ang, vx, vy))
-        super().move(right=vx, forward=vy)
+        super().move(forward=vy+dy, right=vx+dx)
 
         ms_period -= 10
         if ms_period >= 0 and not self.halt:
             self.root.after(10, lambda: self._arc_move(v, deg, ms_period, start_angle, False))
         else:
             self.moving = False
+            self.memo = {}
             print("Done")
             time.sleep(1)  # This is to make the UAV stable
+
+    def function_move(self, f_vx, f_vy, f_vz, ms_period, first_in=True):
+        """
+        This function largely resembles the basic free_move
+        But it takes three function instead of three velocity!
+        Functions should be in the unit of m/s
+        """
+        if first_in:
+            self.moving = True
+            self.clear_controller()
+            self.memo = {"total_period": ms_period}
+
+        t = self.memo["total_period"] - ms_period
+        t /= 1000  # convert from ms to sec
+        vx = f_vx(t)
+        vy = f_vy(t)
+        vz = f_vz(t)
+
+        # Calculate offset using PDI controller
+        dx, dy, dz = self.speed_offset(vx, vy, vz)
+
+        super().move(forward=vy+dy, right=vx+dx, up=vz+dz)
+
+        ms_period -= 10
+        if ms_period >= 0 and not self.halt:
+            self.root.after(10, lambda: self.free_move(f_vx, f_vy, f_vz, ms_period, False))
+        else:
+            self.moving = False
+            self.memo = {}
+            print("Done")
+            # time.sleep(1.5)  # This is to make the UAV stable
 
     def arc_move(self, v, r, deg, start_angle=0):
         """
@@ -348,7 +374,6 @@ class MyDrone(ARDrone):
     def circle(self, v=0.1, r=1):
         """
         Draw a circle counterclockwise.
-        :param v: Speed percentage
         """
         print("Circle moving start")
         deg = 360
@@ -385,30 +410,30 @@ class MyDrone(ARDrone):
         moving_list.append(lambda: self.arc_move(v, r, -180, 90))
         self.move_seq(moving_list)
 
-    def to_center_circle(self, v, deg, ms_period, first_in=True):
-        """
-        Remain to be tested
-        """
-        if first_in:
-            print("To-point Circle starts")
-            self.memo = {"total_moving_period": ms_period}
-
-        self.moving = True
-        w = 2 * pi / (self.max_w * self.memo["total_moving_period"])
-        if w > 1:
-            print("w is too high!")
-            w = 1
-
-        # super().move(right=v, ccw=w)
-        super().move(ccw=w)
-
-        ms_period -= 10
-        if ms_period >= 0 and not self.halt:
-            self.root.after(10, lambda: self.to_center_circle(v, deg, ms_period, False))
-        else:
-            self.moving = False
-            print("Done")
-            time.sleep(1.5)  # This is to make the UAV stable
+    # def to_center_circle(self, v, deg, ms_period, first_in=True):
+    #     """
+    #     Remain to be tested
+    #     """
+    #     if first_in:
+    #         print("To-point Circle starts")
+    #         self.memo = {"total_moving_period": ms_period}
+    #
+    #     self.moving = True
+    #     w = 2 * pi / (self.max_w * self.memo["total_moving_period"])
+    #     if w > 1:
+    #         print("w is too high!")
+    #         w = 1
+    #
+    #     # super().move(right=v, ccw=w)
+    #     super().move(ccw=w)
+    #
+    #     ms_period -= 10
+    #     if ms_period >= 0 and not self.halt:
+    #         self.root.after(10, lambda: self.to_center_circle(v, deg, ms_period, False))
+    #     else:
+    #         self.moving = False
+    #         print("Done")
+    #         time.sleep(1.5)  # This is to make the UAV stable
 
     # def spiral_up(self, v, max_r, first_in=True):
     #     """
@@ -434,6 +459,29 @@ class MyDrone(ARDrone):
     #     self.send(at.CONFIG('general:navdata_demo', True))
     #     print(self.state)
 
+    def clear_controller(self):
+        """Clear the data of vx\vy\vz_ctrl"""
+        self.vx_ctrl.clear()
+        self.vy_ctrl.clear()
+        self.vz_ctrl.clear()
+
+    def speed_offset(self, vx, vy, vz):
+        """Call for PIDController to get the speed offset to rectify the current speed(in m/ms)"""
+        # data reported by UAV
+        real_vx = self.navdata.demo.vx / 1000 / 1000
+        real_vy = self.navdata.demo.vy / 1000 / 1000
+        real_vz = self.navdata.demo.vz / 1000 / 1000  # convert from mm/s to m/ms
+
+        print("delta:%.5f,vx:%.4f" % (self.vx_ctrl.delta(real_vx-vx), vx))
+        print("delta:%.5f,vy:%.4f" % (self.vy_ctrl.delta(real_vy-vy), vy))
+        print("delta:%.5f,vz:%.4f" % (self.vz_ctrl.delta(real_vz-vz), vz))
+
+        # Rectify speed
+        vx2 = self.vx_ctrl.delta(real_vx-vx)
+        vy2 = self.vy_ctrl.delta(real_vy-vy)
+        vz2 = self.vz_ctrl.delta(real_vz-vz)
+
+        return vx2, vy2, vz2
 
 if __name__ == '__main__':
     d = MyDrone()
@@ -465,7 +513,11 @@ if __name__ == '__main__':
     d.add_btn("Circle", lambda: d.circle())
     d.add_btn("8", lambda: d.number_eight())
 
-    # arc_move
+    d.add_btn("free_move with pdi", lambda: d.free_move(0.1, 0, 0, 0, 1000))
+    d.add_btn("free_move with pdi", lambda: d.free_move(0, 0.1, 0, 0, 1000))
+    d.add_btn("free_move with pdi", lambda: d.free_move(-0.3, 0.3, 0, 0, 1000))
+
+    # arc_move with PID
     deg = tk.IntVar()
     d0 = tk.IntVar()
     r = tk.IntVar()
