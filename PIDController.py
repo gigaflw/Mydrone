@@ -5,9 +5,9 @@ class PIDController:
     def __init__(self):
         self.error_sum = 0
         self.last_error = 0
-        self.p_const = - 1
-        self.i_const = - 0.5
-        self.d_const = - 0.2
+        self.p_const = - 1.0
+        self.i_const = - 0.0
+        self.d_const = - 0.0
 
     def delta(self, error):
         p = error * self.p_const
