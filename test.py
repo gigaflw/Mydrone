@@ -1,10 +1,9 @@
 import tkinter as tk
-from pyardrone import ARDrone
 import time
 from math import *
 
 
-class MyDrone(ARDrone):
+class MyDrone():
     """
     Extension for the default ardrone to add some characterized function
     Focus on fly in a specific route.
@@ -31,7 +30,6 @@ class MyDrone(ARDrone):
         print("Programme starts!")
         self.root.mainloop()
         # when windows is closed,close the drone.
-        self.close()
         print("Programme ends!")
 
     # UI-related functions
@@ -43,28 +41,6 @@ class MyDrone(ARDrone):
         tk.Label(self.root, text=description).pack()
         tk.Entry(self.root, textvariable=var).pack(padx=10, pady=5)
 
-    # Taking off and landing
-# ------------------------------------------------------
-    def takeoff(self):
-        # Notice when 'Done' is printed,UAV is still in the process of taking off and
-        # doesn't hover steadily
-        print("Taking off...")
-        while not self.state.fly_mask:
-            super().takeoff()
-        while True:
-            # Here should goes the check of steady hover
-            break
-        print("Done")
-        self.halt = False
-
-    def land(self):
-        # Similarly,when 'Done' is printed,UAV is not yet on the ground
-        print("Landing...")
-        while self.state.fly_mask:
-            super().land()
-        print("Done")
-        self.halt = True
-
     # Basic moving
 # ------------------------------------------------------
     def free_move(self, vx, vy, vz, w, ms_period, first_in=True):
@@ -73,7 +49,7 @@ class MyDrone(ARDrone):
             self.moving = True
             self.memo = {"total_period": ms_period}
 
-        super().move(forward=vy, right=vx, up=vz, cw=w)
+        print("t:%dms\tvx:%.3f\tvy:%.3f\tvz:%.3f" % (self.memo["total_period"]-ms_period, vx, vy, vz))
 
         ms_period -= 50
         if ms_period >= 0 and not self.halt:
@@ -154,41 +130,11 @@ class MyDrone(ARDrone):
         vz = 4 * v * sin(cur_ang) * ccw_flag
         # Multiplied by 4 because the max_v is about 4 times the max_v in vertical
 
-        super().move(up=vz, right=vx)
+        print("t:%dms\tvx:%.3f\tvz:%.3f" % (self.memo["total_period"]-ms_period, vx, vz))
 
-        ms_period -= 10
+        ms_period -= 100
         if ms_period >= 0 and not self.halt:
-            self.root.after(10, lambda: self._arc_move(v, rad, ms_period, start_angle, False))
-        else:
-            self.moving = False
-            self.memo = {}
-            print("Done")
-            time.sleep(1)  # This is to make the UAV stable
-
-    def x_arc_move(self, v, rad: float, ms_period: int, start_angle=0.0, first_in=True):
-        """
-        A arc_move with more speed for vx
-        """
-        if first_in:
-            print("Circle starts")
-            self.memo = {"total_period": ms_period}
-            print("Will take %.3fms" % ms_period)
-
-        self.moving = True
-
-        cur_ang = rad * (1 - ms_period / self.memo["total_period"])
-        cur_ang += start_angle
-
-        ccw_flag = -1 if rad < 0 else 1
-        vx = 1.5 * v * cos(cur_ang) * ccw_flag
-        vz = 4 * v * sin(cur_ang) * ccw_flag
-        # Multiplied by 4 because the max_v is about 4 times the max_v in vertical
-
-        super().move(up=vz, right=vx)
-
-        ms_period -= 10
-        if ms_period >= 0 and not self.halt:
-            self.root.after(10, lambda: self._arc_move(v, rad, ms_period, start_angle, False))
+            self.root.after(100, lambda: self._arc_move(v, rad, ms_period, start_angle, False))
         else:
             self.moving = False
             self.memo = {}
@@ -246,9 +192,8 @@ class MyDrone(ARDrone):
         vx = f_vx(t)
         vy = f_vy(t)
         vz = f_vz(t)
-        print("t:%fs,vx:%.3f,vy:%.3f,vz:%.3f" % (t, vx, vy, vz))
 
-        super().move(forward=vy, right=vx, up=vz)
+        print("t:%dms\tvx:%.3f\tvy:%.3d\tvz:%.3f" % (self.memo["total_period"]-ms_period, vx, vy, vz))
 
         ms_period -= 10
         if ms_period >= 0 and not self.halt:
@@ -298,10 +243,10 @@ class MyDrone(ARDrone):
 
     def circle(self, v=0.1, r=1):
         """
-        Draw a circle clockwise.
+        Draw a circle counterclockwise.
         """
         print("Circle moving starts")
-        self.arc_move(v, r, -360, 0)
+        self.arc_move(v, r, -180, 180)
 
     def two_circle(self, v=0.1, r=1):
         print("Circle moving starts")
@@ -309,11 +254,6 @@ class MyDrone(ARDrone):
         m_list.append(lambda: self.arc_move(v, r, -180, 0))
         m_list.append(lambda: self.arc_move(v, r, -180, 180))
         self.move_seq(m_list, no_pause=True)
-
-    def x_circle(self, v=0.1, r=1):
-        print("Circle moving starts")
-        t = abs(r * 2 * pi / (v * self.max_v))
-        self.x_arc_move(v, 2*pi, t)
 
     def function_circle(self):
         r = 1
@@ -371,30 +311,9 @@ class MyDrone(ARDrone):
 
         self.function_move(fx, fy, fz, total_t)
 
-    def spiral_forward(self):
-        v = 0.1
-        r = 0.8
-        total_t = 2 * pi * r / (self.max_v * v)  # This result is in ms
-        total_t *= 5
-
-        def fx(t):
-            w = v * self.max_v * 1000 / (r * t / total_t)
-            return -v * cos(w * t)
-
-        def fy(t):
-            return 0.1
-
-        def fz(t):
-            w = v * self.max_v * 1000 / (r * t / total_t)
-            return v * sin(w * t)
-
-        self.function_move(fx, fy, fz, total_t)
-
 if __name__ == '__main__':
     d = MyDrone()
 
-    d.add_btn("起飞", d.takeoff)
-    d.add_btn("降落", d.land)
     # d.add_btn("前进(默认1s,下同）", lambda: d.forward(0.1))
     # d.add_btn("后退", lambda: d.forward(-0.1))
     # d.add_btn("右移", lambda: d.right(0.1))
@@ -407,32 +326,8 @@ if __name__ == '__main__':
     d.add_btn("Square", lambda: d.square())
     d.add_btn("Triangle", lambda: d.triangle())
     d.add_btn("Circle", lambda: d.circle())
-    d.add_btn("2_Circle", lambda: d.two_circle())
-    d.add_btn("x_Circle", lambda: d.x_circle())
-    d.add_btn("function_Circle", lambda: d.function_circle())
+    d.add_btn("Circle", lambda: d.function_circle())
     d.add_btn("8", lambda: d.number_eight())
-    d.add_btn("function_8", lambda: d.function_eight())
-
-    # arc_move with PID
-    deg = tk.IntVar()
-    d0 = tk.IntVar()
-    r = tk.DoubleVar()
-    d.add_ent("角度", deg)
-    d.add_ent("初始角度", d0)
-    d.add_ent("半径", r)
-    deg.set(180)
-    r.set(0.7)
-    d.add_btn("arc_move", lambda: d.arc_move(0.1, r.get(), deg.get(), d0.get()))
-
-    d.root.bind_all('<Up>', lambda e: d.move(forward=0.1))
-    d.root.bind_all('<Down>', lambda e: d.move(backward=0.1))
-    d.root.bind_all('<Left>', lambda e: d.move(left=0.1))
-    d.root.bind_all('<Right>', lambda e: d.move(right=0.1))
-    d.root.bind_all('<Z>', lambda e: d.move(up=0.1))
-    d.root.bind_all('<X>', lambda e: d.move(down=0.1))
-    d.root.bind_all('<A>', lambda e: d.move(ccw=0.1))
-    d.root.bind_all('<S>', lambda e: d.move(cw=0.1))
-    d.root.bind_all('<T>', lambda e: d.takeoff())
-    d.root.bind_all('<L>', lambda e: d.land())
+    d.add_btn("8", lambda: d.function_eight())
 
     d.run()
