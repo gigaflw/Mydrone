@@ -17,6 +17,7 @@ class MyDrone(ARDrone):
         super().__init__()
         self.root = tk.Tk()
         self.root.minsize(300, 300)
+        self.root.protocol("WM_DELETE_WINDOW", self.window_close)
 
         self.halt = False
         self.moving = False
@@ -31,7 +32,10 @@ class MyDrone(ARDrone):
         print("Programme starts!")
         self.root.mainloop()
         # when windows is closed,close the drone.
+
+    def window_close(self):
         self.close()
+        self.root.destroy()
         print("Programme ends!")
 
     # UI-related functions
@@ -121,15 +125,16 @@ class MyDrone(ARDrone):
             self.root.after(interval, lambda: self.move_seq(seq, interval, index))
         else:
             if not no_pause:
-                time.sleep(1)  # this is a pause make the UAV stable before next move
+                time.sleep(1.5)  # this is a pause make the UAV stable before next move
             self.root.after(200, seq[index])
             index += 1
             if index < len(seq):
                 self.root.after(interval, lambda: self.move_seq(seq, interval, index, no_pause))
 
-    def _arc_move(self, v, rad: float, ms_period: int, start_angle=0.0, first_in=True):
+    def _arc_move(self, v, rad: float, ms_period: int, start_angle=0.0, vertical=False, first_in=True):
         """
-        A internal function serves to let UAV move in a route of a circle in x-z plane
+        A internal function serves to let UAV move in a route of a circle
+        It's in x-z plane if vertical,otherwise in x-y plane
         deg and start_angle are in radians
 
         Radius r = (self.max_v*v) * ms_period / deg
@@ -150,55 +155,30 @@ class MyDrone(ARDrone):
         cur_ang += start_angle
 
         ccw_flag = -1 if rad < 0 else 1
-        vx = v * cos(cur_ang) * ccw_flag
-        vz = 4 * v * sin(cur_ang) * ccw_flag
-        # Multiplied by 4 because the max_v is about 4 times the max_v in vertical
+        if vertical:
+            vx = v * cos(cur_ang) * ccw_flag
+            vz = 4 * v * sin(cur_ang) * ccw_flag
+            # Multiplied by 4 because the max_v is about 4 times the max_v in vertical
+            super().move(up=vz, right=vx)
+        else:
+            vx = v * cos(cur_ang) * ccw_flag
+            vy = v * sin(cur_ang) * ccw_flag
+            super().move(forward=vy, right=vx)
 
-        super().move(up=vz, right=vx)
-
-        ms_period -= 10
+        ms_period -= 50
         if ms_period >= 0 and not self.halt:
-            self.root.after(10, lambda: self._arc_move(v, rad, ms_period, start_angle, False))
+            self.root.after(50, lambda: self._arc_move(v, rad, ms_period, start_angle, vertical, False))
         else:
             self.moving = False
             self.memo = {}
             print("Done")
             time.sleep(1)  # This is to make the UAV stable
 
-    def x_arc_move(self, v, rad: float, ms_period: int, start_angle=0.0, first_in=True):
-        """
-        A arc_move with more speed for vx
-        """
-        if first_in:
-            print("Circle starts")
-            self.memo = {"total_period": ms_period}
-            print("Will take %.3fms" % ms_period)
-
-        self.moving = True
-
-        cur_ang = rad * (1 - ms_period / self.memo["total_period"])
-        cur_ang += start_angle
-
-        ccw_flag = -1 if rad < 0 else 1
-        vx = 1.5 * v * cos(cur_ang) * ccw_flag
-        vz = 4 * v * sin(cur_ang) * ccw_flag
-        # Multiplied by 4 because the max_v is about 4 times the max_v in vertical
-
-        super().move(up=vz, right=vx)
-
-        ms_period -= 10
-        if ms_period >= 0 and not self.halt:
-            self.root.after(10, lambda: self._arc_move(v, rad, ms_period, start_angle, False))
-        else:
-            self.moving = False
-            self.memo = {}
-            print("Done")
-            time.sleep(1)  # This is to make the UAV stable
-
-    def arc_move(self, v, r, deg, start_angle=0):
+    def arc_move(self, v, r, deg, start_angle=0, vertical=False):
         """
         A much more user-friendly arc_move
 
+        If vertical, it flies in x-z plane,otherwise in x-y plane
         UAV is supposed at the place of 6 o'clock at default
         i.e.
         6 o'clock -> 0 degree
@@ -229,13 +209,14 @@ class MyDrone(ARDrone):
         deg = pi * deg/180
         start_angle = pi * start_angle/180
         ms_period = abs(r * deg / (v * self.max_v))
-        self._arc_move(v, deg, ms_period, start_angle)
+        self._arc_move(v, deg, ms_period, start_angle, vertical)
 
     def function_move(self, f_vx, f_vy, f_vz, ms_period, first_in=True):
         """
         This function largely resembles the basic free_move
         But it takes three function instead of three velocity!
         Functions should be in the unit of (v_percentage)/s
+        Low accuracy!
         """
         if first_in:
             self.moving = True
@@ -250,9 +231,9 @@ class MyDrone(ARDrone):
 
         super().move(forward=vy, right=vx, up=vz)
 
-        ms_period -= 10
+        ms_period -= 50
         if ms_period >= 0 and not self.halt:
-            self.root.after(10, lambda: self.function_move(f_vx, f_vy, f_vz, ms_period, False))
+            self.root.after(50, lambda: self.function_move(f_vx, f_vy, f_vz, ms_period, False))
         else:
             self.moving = False
             self.memo = {}
@@ -296,27 +277,22 @@ class MyDrone(ARDrone):
         moving_list.append(lambda: self.free_move(-v, 0, 0, 0, t))
         self.move_seq(moving_list)
 
-    def circle(self, v=0.1, r=1):
+    def circle(self, v=0.1, r=0.6, vertical=False):
         """
         Draw a circle clockwise.
         """
         print("Circle moving starts")
-        self.arc_move(v, r, -360, 0)
+        self.arc_move(v, r, -400, 0, vertical)
 
-    def two_circle(self, v=0.1, r=1):
+    def two_circle(self, v=0.1, r=0.6, vertical=False):
+        """This function wins"""
         print("Circle moving starts")
-        m_list = list()
-        m_list.append(lambda: self.arc_move(v, r, -180, 0))
-        m_list.append(lambda: self.arc_move(v, r, -180, 180))
-        self.move_seq(m_list, no_pause=True)
-
-    def x_circle(self, v=0.1, r=1):
-        print("Circle moving starts")
-        t = abs(r * 2 * pi / (v * self.max_v))
-        self.x_arc_move(v, 2*pi, t)
+        a = lambda: self.arc_move(v, r, -180, 0, vertical)
+        b = lambda: self.arc_move(v, r, -200, 180, vertical)
+        self.move_seq([a, b], no_pause=True)
 
     def function_circle(self):
-        r = 1
+        r = 0.6
         v = 0.1
 
         def fx(t):
@@ -346,46 +322,24 @@ class MyDrone(ARDrone):
         m_list.append(lambda: self.arc_move(v, r, -180, 0))
         m_list.append(lambda: self.arc_move(v, r, 180, 0))
         m_list.append(lambda: self.arc_move(v, r, 180, 180))
-        m_list.append(lambda: self.arc_move(v, r, -180, 180))
-        self.move_seq(m_list, no_pause=True)
+        m_list.append(lambda: self.arc_move(v, r, -200, 180))
+        self.move_seq(m_list)
 
-    def function_eight(self):
+    def spiral_up(self):
         v = 0.1
-        r = 0.6
-        total_t = 2 * pi * r / (self.max_v * v)  # This result is in ms
-        total_t *= 2  # number '8' has 2 circle
-
-        def fx(t):
-            w = v * self.max_v * 1000 / r
-            return -v * cos(w * t)
-
-        def fy(t):
-            return 0
-
-        def fz(t):
-            w = v * self.max_v * 1000 / r
-            ret = v * sin(w * t)
-            if total_t/4 <= t <= total_t*3/4:
-                ret *= -1
-            return ret
-
-        self.function_move(fx, fy, fz, total_t)
-
-    def spiral_forward(self):
-        v = 0.1
-        r = 0.8
+        r = 0.7
         total_t = 2 * pi * r / (self.max_v * v)  # This result is in ms
         total_t *= 5
 
         def fx(t):
-            w = v * self.max_v * 1000 / (r * t / total_t)
+            w = v * self.max_v * 1000 / (r * (1 - abs(0.5 - t / total_t)))
             return -v * cos(w * t)
 
-        def fy(t):
+        def fz(t):
             return 0.1
 
-        def fz(t):
-            w = v * self.max_v * 1000 / (r * t / total_t)
+        def fy(t):
+            w = v * self.max_v * 1000 / (r * (1 - abs(0.5 - t / total_t)))
             return v * sin(w * t)
 
         self.function_move(fx, fy, fz, total_t)
@@ -407,11 +361,11 @@ if __name__ == '__main__':
     d.add_btn("Square", lambda: d.square())
     d.add_btn("Triangle", lambda: d.triangle())
     d.add_btn("Circle", lambda: d.circle())
-    d.add_btn("2_Circle", lambda: d.two_circle())
-    d.add_btn("x_Circle", lambda: d.x_circle())
-    d.add_btn("function_Circle", lambda: d.function_circle())
-    d.add_btn("8", lambda: d.number_eight())
-    d.add_btn("function_8", lambda: d.function_eight())
+    d.add_btn("Circle", lambda: d.circle(vertical=True))
+    d.add_btn("Two-part Circle in x-y", lambda: d.two_circle())
+    d.add_btn("Two-part Circle in x-z", lambda: d.two_circle(vertical=True))
+    d.add_btn("Number-8 in x-y", lambda: d.number_eight())
+    d.add_btn("Spiral Up", lambda: d.spiral_up())
 
     # arc_move with PID
     deg = tk.IntVar()
