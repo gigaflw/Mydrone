@@ -63,11 +63,12 @@ class MyDrone(ARDrone):
 
     def land(self):
         # Similarly,when 'Done' is printed,UAV is not yet on the ground
+        self.moving = False
+        self.halt = True
         print("Landing...")
         while self.state.fly_mask:
             super().land()
         print("Done")
-        self.halt = True
 
     # Basic moving
 # ------------------------------------------------------
@@ -280,41 +281,22 @@ class MyDrone(ARDrone):
     def circle(self, v=0.1, r=0.6, vertical=False):
         """
         Draw a circle clockwise.
+        For mysterious reason,the trace is not circle enough.
         """
         print("Circle moving starts")
-        self.arc_move(v, r, -400, 0, vertical)
+        self.arc_move(v, r, -380, 0, vertical)
 
     def two_circle(self, v=0.1, r=0.6, vertical=False):
-        """This function wins"""
+        """
+        This function split circle move into two half-circle move
+        which improve the stability.
+        """
         print("Circle moving starts")
         a = lambda: self.arc_move(v, r, -180, 0, vertical)
         b = lambda: self.arc_move(v, r, -200, 180, vertical)
         self.move_seq([a, b], no_pause=True)
 
-    def function_circle(self):
-        r = 0.6
-        v = 0.1
-
-        def fx(t):
-            w = v * self.max_v * 1000 / r
-            return - v * cos(w * t)
-
-        def fy(t):
-            return 0
-
-        def fz(t):
-            w = v * self.max_v * 1000 / r
-            return v * sin(w * t)
-
-        t = 2 * pi * r / (self.max_v * v)  # This result is in ms
-        self.function_move(fx, fy, fz, t)
-
     def number_eight(self):
-        """
-        Draw a number '8' clockwise,
-        in which the curve upward and downward is a 2/3 circle,
-        which implies the sloping angle of the middle 'X' is 60 degree
-        """
         v = 0.1
         r = 0.6
 
@@ -323,26 +305,48 @@ class MyDrone(ARDrone):
         m_list.append(lambda: self.arc_move(v, r, 180, 0))
         m_list.append(lambda: self.arc_move(v, r, 180, 180))
         m_list.append(lambda: self.arc_move(v, r, -200, 180))
-        self.move_seq(m_list)
+        self.move_seq(m_list, no_pause=True)
 
     def spiral_up(self):
         v = 0.1
         r = 0.7
         total_t = 2 * pi * r / (self.max_v * v)  # This result is in ms
-        total_t *= 5
+        total_t *= 4
 
         def fx(t):
-            w = v * self.max_v * 1000 / (r * (1 - abs(0.5 - t / total_t)))
+            w = v * self.max_v * 1000 / r
             return -v * cos(w * t)
 
         def fz(t):
-            return 0.1
+            return 0.1 if t/(total_t/1000) <= 0.5 else -0.1
 
         def fy(t):
-            w = v * self.max_v * 1000 / (r * (1 - abs(0.5 - t / total_t)))
+            w = v * self.max_v * 1000 / r
             return v * sin(w * t)
 
         self.function_move(fx, fy, fz, total_t)
+
+    def star(self):
+        t = 1200
+        v = 0.1
+        a = radians(36)
+        moving_list = list()
+        moving_list.append(lambda: self.free_move(v*cos(2*a), v*sin(2*a), 0, 0, t))
+        moving_list.append(lambda: self.free_move(v*cos(2*a), -v*sin(2*a), 0, 0, t))
+        moving_list.append(lambda: self.free_move(-v*cos(a), v*sin(a), 0, 0, t))
+        moving_list.append(lambda: self.free_move(v, 0, 0, 0, t))
+        moving_list.append(lambda: self.free_move(-v*cos(a), -v*sin(a), 0, 0, t))
+        self.move_seq(moving_list)
+
+    def four_leaves(self):
+        v = 0.1
+        r = 0.8
+        m_list = list()
+        m_list.append(lambda: self.arc_move(v, r, 180, 0))
+        m_list.append(lambda: self.arc_move(v, r, 180, -90))
+        m_list.append(lambda: self.arc_move(v, r, 180, 180))
+        m_list.append(lambda: self.arc_move(v, r, 200, 90))
+        self.move_seq(m_list)
 
 if __name__ == '__main__':
     d = MyDrone()
@@ -361,11 +365,13 @@ if __name__ == '__main__':
     d.add_btn("Square", lambda: d.square())
     d.add_btn("Triangle", lambda: d.triangle())
     d.add_btn("Circle", lambda: d.circle())
-    d.add_btn("Circle", lambda: d.circle(vertical=True))
+    # d.add_btn("Circle", lambda: d.circle(vertical=True))
     d.add_btn("Two-part Circle in x-y", lambda: d.two_circle())
-    d.add_btn("Two-part Circle in x-z", lambda: d.two_circle(vertical=True))
+    # d.add_btn("Two-part Circle in x-z", lambda: d.two_circle(vertical=True))
     d.add_btn("Number-8 in x-y", lambda: d.number_eight())
     d.add_btn("Spiral Up", lambda: d.spiral_up())
+    d.add_btn("Star", lambda: d.star())
+    d.add_btn("Four_leaves", lambda: d.four_leaves())
 
     # arc_move with PID
     deg = tk.IntVar()

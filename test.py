@@ -1,17 +1,16 @@
+"""
+This file serves for test when hardware is unavailable.
+It is a simplified copy of main file except for
+whenever a 'move' command is to be sent,
+paras will be printed instead of let the UAV move.
+"""
+
 import tkinter as tk
 import time
 from math import *
 
 
 class MyDrone():
-    """
-    Extension for the default ardrone to add some characterized function
-    Focus on fly in a specific route.
-
-    Notes:
-    * All speeds ('v' or 'w') denote the percentage of max speed,which ranges from -1 to 1
-    * All time ('period') are in millisecond
-    """
     def __init__(self):
         super().__init__()
         self.root = tk.Tk()
@@ -21,12 +20,10 @@ class MyDrone():
         self.moving = False
         self.memo = {}  # Do nothing but memorize something
 
-        # I can't find a record from the doc of ARDrone,these data are estimated
         self.max_v = 0.01  # m/ms
         self.max_w = 0.12  # deg/ms
 
     def run(self):
-        """Make everything begin"""
         print("Programme starts!")
         self.root.mainloop()
         # when windows is closed,close the drone.
@@ -44,7 +41,6 @@ class MyDrone():
     # Basic moving
 # ------------------------------------------------------
     def free_move(self, vx, vy, vz, w, ms_period, first_in=True):
-        """The base moving method of my drone"""
         if first_in:
             self.moving = True
             self.memo = {"total_period": ms_period}
@@ -61,38 +57,22 @@ class MyDrone():
             # time.sleep(1.5)  # This is to make the UAV stable
 
     def turn(self, w, ms_period=1000):
-        """
-        Turning clockwise if v > 0,counterclockwise if v < 0
-        """
         assert(-1 <= w <= 1)
         self.free_move(0, 0, 0, w, ms_period)
 
     def right(self, v, ms_period=1000):
-        """Moving right if v >0,left if v < 0"""
         assert(-1 <= v <= 1)
         self.free_move(v, 0, 0, 0, ms_period)
 
     def forward(self, v=0.1, ms_period=1000):
-        """Moving forward if v >0,backward if v < 0"""
         assert(-1 <= v <= 1)
         self.free_move(0, v, 0, 0, ms_period)
 
     def climb(self, v, ms_period=1000):
-        """Moving up if v >0,down if v < 0"""
         assert(-1 <= v <= 1)
         self.free_move(0, 0, v, 0, ms_period)
 
     def move_seq(self, seq: list, interval=200, index=0, no_pause=False):
-        """
-        Handle a sequence of move command
-        Every 'interval' milliseconds,this function will be called and check self.moving to see if UAV is moving,
-        i.e. if the UAV is ready to do the next move,until all commands have been done.
-
-        :param seq: The list of the function
-        :param interval: The interval between two calls
-        :param index: Should not be implemented by user,it is used as a pointer when function is recalled
-        :param no_pause: Whether there is a pause between two moves
-        """
         if self.moving:
             self.root.after(interval, lambda: self.move_seq(seq, interval, index))
         else:
@@ -104,17 +84,6 @@ class MyDrone():
                 self.root.after(interval, lambda: self.move_seq(seq, interval, index, no_pause))
 
     def _arc_move(self, v, rad: float, ms_period: int, start_angle=0.0, first_in=True):
-        """
-        A internal function serves to let UAV move in a route of a circle in x-z plane
-        deg and start_angle are in radians
-
-        Radius r = (self.max_v*v) * ms_period / deg
-
-        It directly call the super method because we need to change v for every AT command
-        0 degree points to the South,and counterclockwise is positive
-
-        But this function is NOT user-friendly,you had better use arc_move below
-        """
         if first_in:
             print("Circle starts")
             self.memo = {"total_period": ms_period}
@@ -142,47 +111,12 @@ class MyDrone():
             time.sleep(1)  # This is to make the UAV stable
 
     def arc_move(self, v, r, deg, start_angle=0):
-        """
-        A much more user-friendly arc_move
-
-        UAV is supposed at the place of 6 o'clock at default
-        i.e.
-        6 o'clock -> 0 degree
-        3 o'clock -> 90 degree or -270
-        9 o'clock -> -90 degree or 270
-        12 o'clock -> 180 degree
-        The sign of deg stands for counterclockwise(+)/clockwise(-) move
-
-        Examples:
-        To move UAV from 6 o'clock to 3 o'clock counterclockwise with 10% speed,1m radius
-        drone.arc_move(0.1, 1, 90, 0)
-
-        To move UAV from 6 o'clock to 9 o'clock clockwise with 10% speed,1m radius
-        drone.arc_move(0.1, 1, -90, 0)
-
-        To move UAV from 6 o'clock to 9 o'clock counterclockwise with 10% speed,1m radius
-        drone.arc_move(0.1, 1, 270, 0)
-
-        To move UAV from 9 o'clock to 6 o'clock counterclockwise with 10% speed,1m radius
-        drone.arc_move(0.1, 1, 90, -90)
-
-        To move UAV from 8 o'clock to 5 o'clock counterclockwise with 10% speed,1m radius
-        drone.arc_move(0.1, 1, 90, -60)
-
-        To move 2 rounds
-        drone.arc_move(0.1, 1, 720, 0)
-        """
         deg = pi * deg/180
         start_angle = pi * start_angle/180
         ms_period = abs(r * deg / (v * self.max_v))
         self._arc_move(v, deg, ms_period, start_angle)
 
     def function_move(self, f_vx, f_vy, f_vz, ms_period, first_in=True):
-        """
-        This function largely resembles the basic free_move
-        But it takes three function instead of three velocity!
-        Functions should be in the unit of (v_percentage)/s
-        """
         if first_in:
             self.moving = True
             self.memo = {"total_period": ms_period}
@@ -207,12 +141,6 @@ class MyDrone():
     # Shape moving
 # ------------------------------------------------------
     def square(self, v=0.2, ms_period=600):
-        """
-        Moving in the route of a square in horizontal plane in the order of forward,right,backward,left
-
-        :param v: speed percentage
-        :param ms_period: time to cover one side
-        """
         print("Square moving start")
 
         t = ms_period
@@ -225,12 +153,6 @@ class MyDrone():
         self.move_seq(move_list)
 
     def triangle(self, v=0.2, ms_period=800):
-        """
-        Moving in the route of a triangle in horizontal plane in the order of forward,backward,left
-
-        :param v: Speed percentage
-        :param ms_period: Time to cover one side
-        """
         print("Triangle moving start")
         t = ms_period
         a1 = radians(60)
@@ -242,9 +164,6 @@ class MyDrone():
         self.move_seq(moving_list)
 
     def circle(self, v=0.1, r=1):
-        """
-        Draw a circle counterclockwise.
-        """
         print("Circle moving starts")
         self.arc_move(v, r, -180, 180)
 
@@ -274,11 +193,6 @@ class MyDrone():
         self.function_move(fx, fy, fz, t)
 
     def number_eight(self):
-        """
-        Draw a number '8' clockwise,
-        in which the curve upward and downward is a 2/3 circle,
-        which implies the sloping angle of the middle 'X' is 60 degree
-        """
         v = 0.1
         r = 0.6
 
@@ -313,15 +227,6 @@ class MyDrone():
 
 if __name__ == '__main__':
     d = MyDrone()
-
-    # d.add_btn("前进(默认1s,下同）", lambda: d.forward(0.1))
-    # d.add_btn("后退", lambda: d.forward(-0.1))
-    # d.add_btn("右移", lambda: d.right(0.1))
-    # d.add_btn("左移", lambda: d.right(-0.1))
-    # d.add_btn("上升", lambda: d.climb(0.1))
-    # d.add_btn("下降", lambda: d.climb(-0.1))
-    # d.add_btn("顺时针旋转", lambda: d.turn(0.1))
-    # d.add_btn("逆时针旋转", lambda: d.turn(-0.1))
 
     d.add_btn("Square", lambda: d.square())
     d.add_btn("Triangle", lambda: d.triangle())
